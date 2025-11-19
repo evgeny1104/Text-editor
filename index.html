@@ -49,7 +49,7 @@
 
     <script type="text/babel">
       // Используем глобальные переменные React вместо import
-      const { useState, useMemo } = React;
+      const { useState, useMemo, useRef, useEffect } = React;
       
       const StatBox = ({ label, value }) => (
         <div className="flex flex-col items-center justify-center p-3 bg-slate-50 rounded-lg border border-slate-100 hover:border-blue-200 transition-colors">
@@ -60,6 +60,24 @@
 
       const App = () => {
         const [text, setText] = useState('');
+        const textareaRef = useRef(null);
+
+        // Логика автоматического изменения высоты
+        useEffect(() => {
+          const textarea = textareaRef.current;
+          if (!textarea) return;
+
+          // Сбрасываем высоту на auto, чтобы правильно рассчитать scrollHeight при удалении текста
+          textarea.style.height = 'auto';
+
+          const minHeight = 256; // Начальная высота (соответствует h-64 или 16rem)
+          const maxHeight = minHeight * 3; // Максимальная высота (в 3 раза больше)
+
+          // Вычисляем новую высоту: не меньше минимума, не больше максимума
+          const newHeight = Math.min(Math.max(textarea.scrollHeight, minHeight), maxHeight);
+          
+          textarea.style.height = `${newHeight}px`;
+        }, [text]);
 
         // Вычисление статистики
         const stats = useMemo(() => {
@@ -102,12 +120,13 @@
             {/* Область ввода */}
             <div className="relative group mb-6">
               <textarea
+                ref={textareaRef}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder="Введите или вставьте текст для подсчета статистики..."
-                className="w-full h-64 p-5 bg-slate-50 border border-slate-200 rounded-xl resize-y focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-base text-slate-700 placeholder:text-slate-400 leading-relaxed block"
+                className="w-full p-5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-base text-slate-700 placeholder:text-slate-400 leading-relaxed block overflow-y-auto resize-none"
                 spellCheck="true"
-                style={{ minHeight: '150px' }}
+                style={{ minHeight: '256px' }}
               />
               {text && (
                 <button 
