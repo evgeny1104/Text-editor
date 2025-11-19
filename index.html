@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Текстовый Анализатор Виджет</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+      }
+      body {
+        background-color: #ffffff;
+        margin: 0;
+        padding: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "react": "https://aistudiocdn.com/react@^19.2.0",
+          "react/": "https://aistudiocdn.com/react@^19.2.0/",
+          "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+          "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+          "react-dom/client": "https://aistudiocdn.com/react-dom@^19.2.0/client"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+      import React, { useState, useMemo } from 'react';
+      import ReactDOM from 'react-dom/client';
+      import { GoogleGenAI, Type } from "@google/genai";
+
+      // --- Configuration & API ---
+      // NOTE: In a real production environment, ensure process.env.API_KEY is replaced by your build tool or manually inserted here.
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+      // --- Components ---
+      
+      const StatBox = ({ label, value }) => (
+        <div className="flex flex-col items-center justify-center p-2 bg-slate-50 rounded border border-slate-100 hover:border-blue-200 transition-colors">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 text-center leading-tight">{label}</span>
+          <span className="text-lg font-bold text-slate-700">{value}</span>
+        </div>
+      );
+
+      const App = () => {
+        const [text, setText] = useState('');
+        const [isAnalyzing, setIsAnalyzing] = useState(false);
+        const [result, setResult] = useState(null);
+        const [error, setError] = useState(null);
+
+        // Stats Calculation
+        const stats = useMemo(() => {
+          const trimmed = text.trim();
+          if (!trimmed) {
+            return { characters: 0, charactersNoSpaces: 0, words: 0, sentences: 0, paragraphs: 0, readingTime: '0 с' };
+          }
+
+          const characters = text.length;
+          const charactersNoSpaces = text.replace(/\s/g, '').length;
+          const words = trimmed.split(/\s+/).length;
+          const sentences = text.split(/[.!?]+/).filter(Boolean).length;
+          const paragraphs = text.split(/\n+/).filter(Boolean).length;
+          
+          const readingTimeSeconds = Math.ceil(words / (200 / 60));
+          const readingTime = readingTimeSeconds > 60 
+            ? `${Math.ceil(readingTimeSeconds / 60)} мин` 
+            : `${readingTimeSeconds} с`;
+
+          return { characters, charactersNoSpaces, words, sentences, paragraphs, readingTime };
+        }, [text]);
+
+        // AI Analysis Handler
+        const handleAnalyze = async () => {
+          if (!text.trim()) return;
+          
+          setIsAnalyzing(true);
+          setError(null);
+          setResult(null);
+
+          try {
+            const response = await ai.models.generateContent({
+              model: 'gemini-2.5-flash',
+              contents: `Проанализируй следующий текст на русском языке.
+              1. Исправь грамматические, орфографические и пунктуационные ошибки.
+              2. Улучши стиль, чтобы он был профессиональным и понятным.
+              3. Напиши краткую сводку.
+              4. Определи тон текста.
+              5. Составь список основных исправлений.
+
+              Текст для анализа:
+              "${text}"`,
+              config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: Type.OBJECT,
+                  properties: {
+                    improvedText: {
+                      type: Type.STRING,
+                      description: "Полностью исправленный и улучшенный текст.",
+                    },
+                    summary: {
+                      type: Type.STRING,
+                      description: "Краткое содержание текста.",
+                    },
+                    tone: {
+                      type: Type.STRING,
+                      description: "Тон текста (например: Формальный, Дружелюбный, Агрессивный).",
+                    },
+                    corrections: {
+                      type: Type.ARRAY,
+                      description: "Список значимых исправлений.",
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          issue: { type: Type.STRING, description: "Оригинальная фраза с ошибкой." },
+                          fix: { type: Type.STRING, description: "Исправленный вариант." },
+                          explanation: { type: Type.STRING, description: "Причина исправления." },
+                        },
+                        required: ["issue", "fix", "explanation"],
+                      },
+                    },
+                  },
+                  required: ["improvedText", "summary", "tone", "corrections"],
+                },
+              },
+            });
+
+            const resultText = response.text;
+            if (resultText) {
+              setResult(JSON.parse(resultText));
+            }
+          } catch (err) {
+            console.error(err);
+            setError("Ошибка анализа. Пожалуйста, проверьте подключение или попробуйте позже.");
+          } finally {
+            setIsAnalyzing(false);
+          }
+        };
+
+        const copyToClipboard = (content) => {
+          navigator.clipboard.writeText(content);
+        };
+
+        return (
+          <div className="w-full max-w-3xl mx-auto p-4 bg-white text-slate-800">
+            {/* Widget Header */}
+            <header className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                 <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white">
+                   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                 </div>
+                 <h1 className="text-lg font-bold text-slate-900 leading-none">
+                   Анализ Текста
+                   <span className="block text-xs text-slate-400 font-normal mt-1">AI Корректор и Статистика</span>
+                 </h1>
+              </div>
+            </header>
+
+            {/* Input Area */}
+            <div className="relative group mb-4">
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="Введите или вставьте текст для проверки..."
+                className="w-full h-48 p-4 bg-slate-50 border border-slate-200 rounded-xl resize-y focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-base text-slate-700 placeholder:text-slate-400"
+                spellCheck="false"
+              />
+              {text && (
+                <button 
+                  onClick={() => setText('')}
+                  className="absolute top-2 right-2 p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                  title="Очистить"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+              )}
+            </div>
+
+            {/* Stats Bar */}
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">
+              <StatBox label="Знаков" value={stats.characters} />
+              <StatBox label="Без пробелов" value={stats.charactersNoSpaces} />
+              <StatBox label="Слов" value={stats.words} />
+              <StatBox label="Предложений" value={stats.sentences} />
+              <StatBox label="Абзацев" value={stats.paragraphs} />
+              <StatBox label="Чтение" value={stats.readingTime} />
+            </div>
+
+            {/* Action Button */}
+            <div className="flex justify-end mb-6">
+              <button
+                onClick={handleAnalyze}
+                disabled={isAnalyzing || !text.trim()}
+                className={`
+                  flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-all shadow-sm text-sm
+                  ${isAnalyzing || !text.trim()
+                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                    : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow active:transform active:scale-95'}
+                `}
+              >
+                {isAnalyzing ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Обработка...
+                  </>
+                ) : (
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+                    Проверить текст
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Error Message */}
+            {error && (
+              <div className="p-3 mb-4 bg-red-50 text-red-600 border border-red-100 rounded-lg text-sm flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+                {error}
+              </div>
+            )}
+
+            {/* Results */}
+            {result && (
+              <div className="space-y-6 animate-fade-in">
+                
+                {/* Corrected Text */}
+                <div className="bg-green-50/30 rounded-xl border border-green-100 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2 bg-green-50/50 border-b border-green-100">
+                     <h3 className="text-sm font-semibold text-green-800 flex items-center gap-2">
+                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                       Исправленный вариант
+                     </h3>
+                     <button 
+                       onClick={() => copyToClipboard(result.improvedText)}
+                       className="text-xs font-medium text-green-700 hover:bg-green-100 px-2 py-1 rounded transition-colors flex items-center gap-1"
+                     >
+                       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                       Копировать
+                     </button>
+                  </div>
+                  <div className="p-4 text-slate-800 leading-relaxed whitespace-pre-wrap text-sm">
+                    {result.improvedText}
+                  </div>
+                </div>
+
+                {/* Info Cards */}
+                <div className="grid sm:grid-cols-2 gap-4">
+                   {/* Summary & Tone */}
+                   <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                      <div className="mb-4">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Сводка</h4>
+                        <p className="text-sm text-slate-700">{result.summary}</p>
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Тон</h4>
+                        <span className="inline-block px-2 py-1 bg-white border border-slate-200 rounded text-xs font-medium text-slate-700">
+                          {result.tone}
+                        </span>
+                      </div>
+                   </div>
+
+                   {/* Corrections List */}
+                   <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 max-h-64 overflow-y-auto custom-scrollbar">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 sticky top-0 bg-slate-50 pb-2">Исправления ({result.corrections.length})</h4>
+                      {result.corrections.length === 0 ? (
+                         <p className="text-xs text-slate-500 italic">Ошибок не найдено.</p>
+                      ) : (
+                        <ul className="space-y-3">
+                          {result.corrections.map((item, idx) => (
+                            <li key={idx} className="text-sm">
+                               <div className="flex flex-wrap gap-x-2 mb-1">
+                                 <span className="text-red-500 line-through decoration-red-300/50 opacity-80 text-xs">{item.issue}</span>
+                                 <span className="text-slate-400 text-xs">→</span>
+                                 <span className="text-green-600 font-medium text-xs bg-green-100/50 px-1 rounded">{item.fix}</span>
+                               </div>
+                               <p className="text-xs text-slate-500 leading-snug">{item.explanation}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                   </div>
+                </div>
+
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
